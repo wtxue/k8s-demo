@@ -1,0 +1,278 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    helm.sh/hook: crd-install
+  labels:
+    app: wasme
+    app.kubernetes.io/name: wasme
+  name: filterdeployments.wasme.io
+spec:
+  group: wasme.io
+  names:
+    kind: FilterDeployment
+    listKind: FilterDeploymentList
+    plural: filterdeployments
+    singular: filterdeployment
+  scope: Namespaced
+  subresources:
+    status: {}
+  versions:
+    - name: v1
+      served: true
+      storage: true
+---
+# Source: Wasme Operator/templates/configmap.yaml
+# ConfigMap wasme-cache
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: wasme-cache
+    configmap: wasme-cache
+  name: wasme-cache
+  namespace: sym-admin
+data:
+  images: ""
+---
+# Source: Wasme Operator/templates/deployment.yaml
+# Service account for wasme-cache
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: wasme-cache
+  name: wasme-cache
+  namespace: sym-admin
+---
+# Source: Wasme Operator/templates/deployment.yaml
+# Service account for wasme-operator
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: wasme-operator
+  name: wasme-operator
+  namespace: sym-admin
+---
+# Source: Wasme Operator/templates/rbac.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: wasme-operator
+  labels:
+    app: wasme-operator
+rules:
+  - apiGroups:
+      - wasme.io
+    resources:
+      - filterdeployments
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - wasme.io
+    resources:
+      - filterdeployments/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - '*'
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - daemonsets
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+  - apiGroups:
+      - networking.istio.io
+    resources:
+      - envoyfilters
+    verbs:
+      - '*'
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - '*'
+---
+# Source: Wasme Operator/templates/rbac.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: wasme-cache
+  labels:
+    app: wasme-cache
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+---
+# Source: Wasme Operator/templates/rbac.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: wasme-operator
+  labels:
+    app: wasme-operator
+subjects:
+  - kind: ServiceAccount
+    name: wasme-operator
+    namespace: sym-admin
+roleRef:
+  kind: ClusterRole
+  name: wasme-operator
+  apiGroup: rbac.authorization.k8s.io
+# Rbac manifests for wasme-cache
+---
+# Source: Wasme Operator/templates/rbac.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: wasme-cache
+  labels:
+    app: wasme-cache
+subjects:
+  - kind: ServiceAccount
+    name: wasme-cache
+    namespace: sym-admin
+roleRef:
+  kind: ClusterRole
+  name: wasme-cache
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: Wasme Operator/templates/deployment.yaml
+# DaemonSet manifest for wasme-cache
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app: wasme-cache
+  name: wasme-cache
+  namespace: sym-admin
+spec:
+  selector:
+    matchLabels:
+      app: wasme-cache
+  template:
+    metadata:
+      labels:
+        app: wasme-cache
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9091"
+        prometheus.io/scrape: "true"
+    spec:
+      serviceAccountName: wasme-cache
+      volumes:
+        - hostPath:
+            path: /var/local/lib/wasme-cache
+            type: DirectoryOrCreate
+          name: cache-dir
+        - configMap:
+            items:
+              - key: images
+                path: images.txt
+            name: wasme-cache
+          name: config
+      containers:
+        - image: symcn.tencentcloudcr.com/symcn/wasme:0.0.16
+          args:
+            - cache
+            - --directory
+            - /var/local/lib/wasme-cache
+            - --ref-file
+            - /etc/wasme-cache/images.txt
+            - --cache-ns
+            - 'sym-admin'
+          volumeMounts:
+            - mountPath: /var/local/lib/wasme-cache
+              name: cache-dir
+            - mountPath: /etc/wasme-cache
+              name: config
+          imagePullPolicy: Always
+          name: wasme-cache
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+---
+# Source: Wasme Operator/templates/deployment.yaml
+# Deployment manifest for wasme-operator
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: wasme-operator
+  name: wasme-operator
+  namespace: sym-admin
+spec:
+  selector:
+    matchLabels:
+      app: wasme-operator
+  template:
+    metadata:
+      labels:
+        app: wasme-operator
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9091"
+        prometheus.io/scrape: "true"
+    spec:
+      serviceAccountName: wasme-operator
+      containers:
+        - image: symcn.tencentcloudcr.com/symcn/wasme:0.0.16
+          args:
+            - operator
+            - --cache-namespace=sym-admin
+            - --log-level=debug
+          imagePullPolicy: Always
+          name: wasme-operator
+          resources:
+            requests:
+              cpu: 125m
+              memory: 256Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+---
+# Source: Wasme Operator/templates/rbac.yaml
+# Rbac manifests for wasme-operator

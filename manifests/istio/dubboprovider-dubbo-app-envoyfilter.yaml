@@ -1,0 +1,83 @@
+#---
+#apiVersion: networking.istio.io/v1alpha3
+#kind: VirtualService
+#metadata:
+#  name: provider
+#  namespace: mesh-demo
+#spec:
+#  hosts:
+#    - provider
+#  tcp:
+#    - route:
+#        - destination:
+#            host: provider
+#            port:
+#              number: 8888
+#---
+#apiVersion: networking.istio.io/v1alpha3
+#kind: DestinationRule
+#metadata:
+#  name: provider
+#  namespace: mesh-demo
+#spec:
+#  host: provider
+#  subsets:
+#    - name: v1
+#      labels:
+#        version: v0.0.1
+#    - name: v2
+#      labels:
+#        version: v0.0.2
+#  trafficPolicy:
+#    outlierDetection:
+#      interval: 10m
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: dubboprovider-dubbo-app
+  namespace: istio-system
+spec:
+  configPatches:
+    - applyTo: NETWORK_FILTER
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          filter_chain:
+            filter:
+              name: envoy.tcp_proxy
+          name: 10.13.126.12_8888
+          port_number: 8888
+      patch:
+        operation: REMOVE
+    - applyTo: NETWORK_FILTER
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          name: 10.13.126.12_8888
+          port_number: 8888
+      patch:
+        operation: INSERT_AFTER
+        value:
+          config:
+            dubbo_filters:
+              - name: envoy.filters.dubbo.router
+            protocol_type: Dubbo
+            route_config:
+              - interface: UserProvider
+                name: local_route
+                routes:
+                  - route:
+                      cluster: outbound|8888||provider.mesh-demo.svc.cluster.local
+                    match:
+                      method:
+                        name:
+#                          exact: GetUser
+                          safe_regex:
+                            google_re2:
+                              max_program_size:
+                                value: 100
+                            regex: .*
+            serialization_type: Hessian2
+            stat_prefix: dubbo_incomming_stats
+          name: envoy.filters.network.dubbo_proxy

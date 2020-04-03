@@ -1,0 +1,311 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-provider-config
+  labels:
+    app: user-provider
+data:
+  log.yml: |
+    level: "debug"
+    development: true
+    disableCaller: true
+    disableStacktrace: true
+    sampling:
+    encoding: "console"
+
+    # encoder
+    encoderConfig:
+      messageKey: "message"
+      levelKey: "level"
+      timeKey: "time"
+      nameKey: "logger"
+      callerKey: "caller"
+      stacktraceKey: "stacktrace"
+      lineEnding: ""
+      levelEncoder: "capitalColor"
+      timeEncoder: "iso8601"
+      durationEncoder: "seconds"
+      callerEncoder: "short"
+      nameEncoder: ""
+
+    outputPaths:
+      - "stderr"
+    errorOutputPaths:
+      - "stderr"
+    initialFields:
+  server.yml: |
+    # application config
+    application:
+      organization : "k8s.com"
+      name : "mesh demo"
+      module : "mesh demo user server"
+      version : "0.0.1"
+      owner : "symcn"
+      environment : "release"
+
+    #registries :
+    #  "hangzhouzk":
+    #    protocol: "zookeeper"
+    #    timeout	: "3s"
+    #    address: "127.0.0.1:2181"
+    #    username: ""
+    #    password: ""
+
+    services:
+      "UserProvider":
+        protocol : "dubbo"
+        # 相当于dubbo.xml中的interface
+        interface : "com.k8s.User.UserProvider"
+        loadbalance: "random"
+        warmup: "100"
+        cluster: "failover"
+        methods:
+          - name: "GetUser"
+            retries: 1
+            loadbalance: "random"
+          - name: "SetUser"
+            retries: 1
+            loadbalance: "random"
+
+    protocols:
+      "dubbo":
+        name: "dubbo"
+        #    ip : "127.0.0.1"
+        port: 20880
+
+    protocol_conf:
+      dubbo:
+        session_number: 700
+        session_timeout: "20s"
+        getty_session_param:
+          compress_encoding: false
+          tcp_no_delay: true
+          tcp_keep_alive: true
+          keep_alive_period: "120s"
+          tcp_r_buf_size: 262144
+          tcp_w_buf_size: 65536
+          pkg_rq_size: 1024
+          pkg_wq_size: 512
+          tcp_read_timeout: "5s"
+          tcp_write_timeout: "5s"
+          wait_timeout: "1s"
+          max_msg_len: 1024
+          session_name: "server"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-provider
+  labels:
+    app: user-provider
+spec:
+  type: ClusterIP
+  ports:
+    - port: 20880
+      targetPort: 20880
+      protocol: TCP
+      name: tcp-dubbo
+  selector:
+    app: user-provider
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-provider-blue
+  labels:
+    app: user-provider
+    version: blue
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  selector:
+    matchLabels:
+      app: user-provider
+      version: blue
+  template:
+    metadata:
+      labels:
+        app: user-provider
+        version: blue
+      annotations:
+        sidecar.istio.io/componentLogLevel: "stats:info,wasm:info,dubbo:trace"
+    spec:
+      volumes:
+        - name: config
+          configMap:
+            name: user-provider-config
+            defaultMode: 420
+      containers:
+        - name: user-provider
+          image: "symcn.tencentcloudcr.com/symcn/user-provider:v0.0.4"
+          imagePullPolicy: Always
+#          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: config
+              mountPath: "/config"
+          ports:
+            - name: tcp-dubbo
+              containerPort: 20880
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+            - name: SERVICE_ACCOUNT
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.serviceAccountName
+            - name: APP_LOG_CONF_FILE
+              value: "/config/log.yml"
+            - name: CONF_PROVIDER_FILE_PATH
+              value: "/config/server.yml"
+#          livenessProbe:
+#            httpGet:
+#              path: /live
+#              port: http
+#            initialDelaySeconds: 5
+#            periodSeconds: 30
+#          readinessProbe:
+#            httpGet:
+#              path: /ready
+#              port: http
+#            initialDelaySeconds: 5
+#            periodSeconds: 30
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - user-provider
+                topologyKey: kubernetes.io/hostname
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-provider-green
+  labels:
+    app: user-provider
+    version: green
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  selector:
+    matchLabels:
+      app: user-provider
+      version: green
+  template:
+    metadata:
+      labels:
+        app: user-provider
+        version: green
+      annotations:
+        sidecar.istio.io/componentLogLevel: "stats:info,wasm:info,dubbo:trace"
+    spec:
+      volumes:
+        - name: config
+          configMap:
+            name: user-provider-config
+            defaultMode: 420
+      containers:
+        - name: provider
+          image: "symcn.tencentcloudcr.com/symcn/user-provider:v0.0.4"
+          imagePullPolicy: Always
+          #          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: config
+              mountPath: "/config"
+          ports:
+            - name: tcp-dubbo
+              containerPort: 8888
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+            - name: SERVICE_ACCOUNT
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.serviceAccountName
+            - name: APP_LOG_CONF_FILE
+              value: "/config/log.yml"
+            - name: CONF_PROVIDER_FILE_PATH
+              value: "/config/server.yml"
+          #          livenessProbe:
+          #            httpGet:
+          #              path: /live
+          #              port: http
+          #            initialDelaySeconds: 5
+          #            periodSeconds: 30
+          #          readinessProbe:
+          #            httpGet:
+          #              path: /ready
+          #              port: http
+          #            initialDelaySeconds: 5
+          #            periodSeconds: 30
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - user-provider
+                topologyKey: kubernetes.io/hostname
+

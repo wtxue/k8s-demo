@@ -1,0 +1,121 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: prometheus-ingress
+  annotations:
+    kubernetes.io/ingress.class: traefik
+  labels:
+    app: prometheus
+    release: istiod-prometheus
+  namespace: istio-system
+spec:
+  rules:
+  - host: pm.istio.k8s.com
+    http:
+      paths:
+      - backend:
+          serviceName: prometheus
+          servicePort: 9090
+        path: /
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: grafana-ingress
+  annotations:
+    kubernetes.io/ingress.class: traefik
+  labels:
+    app: grafana
+    release: istiod-grafana
+  namespace: istio-system
+spec:
+  rules:
+  - host: gm.istio.k8s.com
+    http:
+      paths:
+      - backend:
+          serviceName: grafana
+          servicePort: 3000
+        path: /  
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: jaeger-kiali-ingress
+  annotations:
+    kubernetes.io/ingress.class: traefik
+  labels:
+    app: jaeger-kiali
+    release: istiod-jaeger-kiali
+  namespace: istio-system
+spec:
+  rules:
+  - host: kjm.istio.k8s.com
+    http:
+      paths:
+      - backend:
+          serviceName: jaeger-query
+          servicePort: 16686
+        path: /jaeger
+      - backend:
+          serviceName: kiali
+          servicePort: http-kiali
+        path: /kiali
+# ---
+# apiVersion: extensions/v1beta1
+# kind: Ingress
+# metadata:
+#   name: kiali-ingress
+#   annotations:
+#     kubernetes.io/ingress.class: traefik
+#   labels:
+#     app: kiali
+#     release: istiod-kiali
+#   namespace: istio-system
+# spec:
+#   rules:
+#   - host: ku02.istio.k8s.com
+#     http:
+#       paths:
+#       - backend:
+#           serviceName: kiali
+#           servicePort: http-kiali
+#         path: /kiali
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: kiali
+    operator.istio.io/component: AddonComponents
+    operator.istio.io/managed: Reconcile
+    operator.istio.io/version: 1.5.0
+    release: istio
+  name: kiali
+  namespace: istio-system
+data:
+  config.yaml: |
+    istio_component_namespaces:
+      grafana: istio-system
+      tracing: istio-system
+      pilot: istio-system
+      prometheus: istio-system
+    istio_namespace: istio-system
+    auth:
+      strategy: login
+    deployment:
+      accessible_namespaces: ['**']
+    server:
+      port: 20001
+      web_root: /kiali
+    external_services:
+      istio:
+        url_service_version: http://istio-pilot.istio-system:8080/version
+      tracing:
+        url: http://kjm.istio.k8s.com/jaeger
+        in_cluster_url: 'http://tracing.istio-system/jaeger'
+      grafana:
+        url: http://gm.istio.k8s.com
+        in_cluster_url: http://grafana:3000
+      prometheus:
+        url: http://prometheus.istio-system:9090           

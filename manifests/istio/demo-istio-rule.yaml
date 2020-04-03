@@ -1,0 +1,33 @@
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: comsumer
+spec:
+  hosts:
+    - "td.mesh.symcn.com"
+  gateways:
+    - istio-system/ingressgateway
+  http:
+    - route:
+        - destination:
+            host: comsumer
+            port:
+              name: http
+              number: 80
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: external-work
+spec:
+  hosts:
+    - github.com
+    - baidu.com
+  ports:
+    - number: 443
+      name: tls
+      protocol: TLS
+  resolution: DNS
+  location: MESH_EXTERNAL
+---

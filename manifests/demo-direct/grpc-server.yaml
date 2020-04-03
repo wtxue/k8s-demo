@@ -1,0 +1,196 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc-server
+  labels:
+    app: grpc-server
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: grpc
+  selector:
+    app: grpc-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc-server-blue
+  labels:
+    app: grpc-server
+    version: blue
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  selector:
+    matchLabels:
+      app: grpc-server
+      version: blue
+  template:
+    metadata:
+      labels:
+        app: grpc-server
+        version: blue
+      annotations:
+        sidecar.istio.io/componentLogLevel: "stats:info,wasm:info,dubbo:trace"
+    spec:
+      containers:
+        - name: grpc-server
+          image: "symcn.tencentcloudcr.com/symcn/grpc-server:v0.0.4"
+          imagePullPolicy: Always
+#          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc-8000
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+            - name: SERVICE_ACCOUNT
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.serviceAccountName
+#          livenessProbe:
+#            httpGet:
+#              path: /live
+#              port: http
+#            initialDelaySeconds: 5
+#            periodSeconds: 30
+#          readinessProbe:
+#            httpGet:
+#              path: /ready
+#              port: http
+#            initialDelaySeconds: 5
+#            periodSeconds: 30
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - grpc-server
+                topologyKey: kubernetes.io/hostname
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc-server-green
+  labels:
+    app: grpc-server
+    version: green
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  selector:
+    matchLabels:
+      app: grpc-server
+      version: green
+  template:
+    metadata:
+      labels:
+        app: grpc-server
+        version: green
+      annotations:
+        sidecar.istio.io/componentLogLevel: "stats:info,wasm:info,dubbo:trace"
+    spec:
+      containers:
+        - name: grpc-server
+          image: "symcn.tencentcloudcr.com/symcn/grpc-server:v0.0.4"
+          imagePullPolicy: Always
+          #          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc-8000
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+            - name: SERVICE_ACCOUNT
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.serviceAccountName
+          #          livenessProbe:
+          #            httpGet:
+          #              path: /live
+          #              port: http
+          #            initialDelaySeconds: 5
+          #            periodSeconds: 30
+          #          readinessProbe:
+          #            httpGet:
+          #              path: /ready
+          #              port: http
+          #            initialDelaySeconds: 5
+          #            periodSeconds: 30
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - grpc-server
+                topologyKey: kubernetes.io/hostname
+
+
+
+
